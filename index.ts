@@ -1,6 +1,14 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, openSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const DEFAULT_BASE_URL = process.env.PIFM_BASE_URL ?? "http://127.0.0.1:11435/v1";
+const DEFAULT_PORT = Number(process.env.PIFM_PORT ?? 11435);
+const DEFAULT_BASE_URL = process.env.PIFM_BASE_URL ?? `http://127.0.0.1:${DEFAULT_PORT}/v1`;
+const FM_BIN = process.env.PIFM_FM_BIN ?? "/usr/bin/fm";
+const LOG_PATH = process.env.PIFM_LOG ?? join(homedir(), ".pi", "agent", "pifm-serve.log");
+const SPAWN_TIMEOUT_MS = 10_000;
 
 type FmModelEntry = {
   id: string;
@@ -21,7 +29,65 @@ function displayName(m: FmModelEntry): string {
   return m.id;
 }
 
+async function probeHealth(): Promise<boolean> {
+  try {
+    const url = DEFAULT_BASE_URL.replace(/\/v1\/?$/, "") + "/health";
+    const res = await fetch(url, { signal: AbortSignal.timeout(500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForHealth(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await probeHealth()) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
+function spawnFmServe(): ChildProcess | undefined {
+  try {
+    mkdirSync(dirname(LOG_PATH), { recursive: true });
+    const logFd = openSync(LOG_PATH, "a");
+    const child = spawn(FM_BIN, ["serve", "--port", String(DEFAULT_PORT)], {
+      stdio: ["ignore", logFd, logFd],
+      detached: false,
+    });
+    child.on("error", (err) => {
+      console.error(`[pifm] failed to spawn ${FM_BIN}: ${err.message}`);
+    });
+    return child;
+  } catch (err) {
+    console.error(`[pifm] could not spawn fm serve: ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
+async function ensureFmRunning(state: { child?: ChildProcess }): Promise<boolean> {
+  if (await probeHealth()) return true;
+  if (state.child && !state.child.killed) {
+    // We spawned one earlier but it isn't healthy — let it die and try again.
+    state.child.kill();
+    state.child = undefined;
+  }
+  const child = spawnFmServe();
+  if (!child) return false;
+  state.child = child;
+  const ok = await waitForHealth(SPAWN_TIMEOUT_MS);
+  if (!ok) {
+    console.error(`[pifm] fm serve did not become healthy within ${SPAWN_TIMEOUT_MS}ms (see ${LOG_PATH})`);
+  }
+  return ok;
+}
+
 export default async function (pi: ExtensionAPI) {
+  const state: { child?: ChildProcess } = {};
+
+  await ensureFmRunning(state);
+
   let models: FmModelEntry[] = FALLBACK_MODELS;
   try {
     const res = await fetch(`${DEFAULT_BASE_URL}/models`);
@@ -32,7 +98,7 @@ export default async function (pi: ExtensionAPI) {
       }
     }
   } catch {
-    // fm serve isn't running — keep fallback so /model still lists the provider.
+    // Keep fallback; provider still appears in /model.
   }
 
   const fmModelIds = new Set(models.map((m) => m.id));
@@ -40,8 +106,8 @@ export default async function (pi: ExtensionAPI) {
   // fm serve's tool-schema parser rejects:
   //   - parameters of type "object" missing `properties` or `required`
   //   - any nested object beneath top-level `parameters` (including objects inside arrays)
-  // We normalize the first and drop tools that hit the second so the model still gets
-  // the simple read/write/bash tools instead of failing the whole request.
+  // Normalize the first; drop tools that hit the second so the model still gets
+  // read/write/bash instead of failing the whole request.
   function containsNestedObject(node: unknown, depth = 0): boolean {
     if (!node || typeof node !== "object") return false;
     const n = node as Record<string, unknown>;
@@ -89,6 +155,18 @@ export default async function (pi: ExtensionAPI) {
 
     if (dropped.length > 0 || tools.some((t) => t.function?.parameters)) {
       return { ...payload, tools: kept };
+    }
+  });
+
+  pi.on("model_select", async (event) => {
+    if (event.model?.provider !== "apple-fm") return;
+    await ensureFmRunning(state);
+  });
+
+  pi.on("session_shutdown", () => {
+    if (state.child && !state.child.killed) {
+      state.child.kill();
+      state.child = undefined;
     }
   });
 

@@ -7,43 +7,46 @@ A [pi-coding-agent](https://pi.dev) provider extension that routes pi to **Apple
 - macOS 27+ with `/usr/bin/fm` available.
 - `pi` (pi-coding-agent) installed.
 
-## Run
-
-In one terminal, start the fm server:
+## Install
 
 ```sh
-fm serve --port 11435
+pi install /path/to/pifm        # global (~/.pi/agent/settings.json)
+pi install -l /path/to/pifm     # project-local (.pi/settings.json)
 ```
 
-In another terminal, point pi at this extension and pick a model:
+## Run
 
 ```sh
-cd /path/to/pifm
-pi -e ./index.ts
-# inside pi:
+pi --provider apple-fm --model system
+# or, to persist for future sessions, inside pi:
 # /model apple-fm/system
 ```
 
-To install permanently into your user scope:
-
-```sh
-pi install /path/to/pifm
-```
-
-(Use `-l` for project-local install.)
+`fm serve` is started automatically if it isn't already running on the configured port, and torn down on pi shutdown. If you already have an `fm serve` running, pifm reuses it and leaves it alone.
 
 ## Configuration
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `PIFM_BASE_URL` | `http://127.0.0.1:11435/v1` | Where `fm serve` is listening. |
+| `PIFM_PORT` | `11435` | Port for fm serve (used for both spawn and probe). |
+| `PIFM_BASE_URL` | `http://127.0.0.1:$PIFM_PORT/v1` | Override the full base URL (takes precedence over `PIFM_PORT`). |
+| `PIFM_FM_BIN` | `/usr/bin/fm` | Path to the `fm` binary. |
+| `PIFM_LOG` | `~/.pi/agent/pifm-serve.log` | Log file for spawned fm serve stdout/stderr. |
 | `PIFM_DEBUG` | unset | When set, logs any tools dropped due to schema incompatibility. |
 
 ## How it works
 
-The extension calls `fm serve`'s `GET /v1/models` at startup to discover available models and registers them with pi under provider name `apple-fm`. If the server isn't reachable at load time, the extension falls back to registering `system` and `pcc` so the provider still appears in `/model`.
+On extension load:
 
-Streaming, tool calls, and the agent loop are handled by pi's built-in `openai-completions` transport — no custom streaming code lives here.
+1. Probe `GET /health` on the configured port. If reachable, reuse it.
+2. Otherwise spawn `fm serve --port $PIFM_PORT` as a child process, logging to `PIFM_LOG`, and wait up to 10s for it to become healthy.
+3. Call `GET /v1/models` and register the result with pi under provider name `apple-fm`. If the call fails, fall back to registering `system` and `pcc` so the provider still appears in `/model`.
+
+On `model_select`: if the user switches to any `apple-fm/*` model mid-session and fm isn't healthy, spawn it the same way.
+
+On `session_shutdown`: kill the child *only if pifm spawned it*. An `fm serve` you started manually is untouched.
+
+Streaming, tool calls, and the agent loop are handled by pi's built-in `openai-completions` transport.
 
 ### Tool-schema compatibility
 
