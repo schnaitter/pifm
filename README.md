@@ -56,3 +56,9 @@ Streaming, tool calls, and the agent loop are handled by pi's built-in `openai-c
 - Any **nested object** below the top-level `parameters` — including objects inside `array.items`.
 
 The second restriction means pi's built-in `edit` tool (which takes `edits: [{oldText, newText}, ...]`) is rejected outright. Rather than fail the whole request, a `before_provider_request` hook drops any tool whose schema contains nested objects. The model still gets `read`, `bash`, and `write`, and can use `read` + `write` to perform edits.
+
+## Status
+
+Verified working with both `system` (on-device) and `pcc` (Private Cloud Compute) models: plain replies, `bash` tool calls, `read` tool calls. Note that `fm available --model pcc` may report PCC as unavailable on a host where `fm serve` actually accepts PCC requests — trust the serve path. Not yet verified: image input, long-context behavior, multi-turn sessions.
+
+Context windows: `system` = 4096, `pcc` = 32768. `maxTokens` defaults to 4096 for both. `fm serve`'s `/v1/models` doesn't report these, so they're hardcoded; any future model is read from `/v1/models` if it supplies `context_window` / `max_tokens`, otherwise it falls back to 8192 / 4096.

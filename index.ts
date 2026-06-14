@@ -103,6 +103,11 @@ export default async function (pi: ExtensionAPI) {
 
   const fmModelIds = new Set(models.map((m) => m.id));
 
+  const KNOWN_LIMITS: Record<string, { contextWindow: number; maxTokens: number }> = {
+    system: { contextWindow: 4096, maxTokens: 4096 },
+    pcc: { contextWindow: 32768, maxTokens: 4096 },
+  };
+
   // fm serve's tool-schema parser rejects:
   //   - parameters of type "object" missing `properties` or `required`
   //   - any nested object beneath top-level `parameters` (including objects inside arrays)
@@ -175,18 +180,21 @@ export default async function (pi: ExtensionAPI) {
     baseUrl: DEFAULT_BASE_URL,
     apiKey: "unused",
     api: "openai-completions",
-    models: models.map((m) => ({
-      id: m.id,
-      name: displayName(m),
-      reasoning: false,
-      input: ["text"],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: m.context_window ?? 8192,
-      maxTokens: m.max_tokens ?? 4096,
-      compat: {
-        maxTokensField: "max_tokens",
-        supportsDeveloperRole: false,
-      },
-    })),
+    models: models.map((m) => {
+      const known = KNOWN_LIMITS[m.id];
+      return {
+        id: m.id,
+        name: displayName(m),
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: m.context_window ?? known?.contextWindow ?? 8192,
+        maxTokens: m.max_tokens ?? known?.maxTokens ?? 4096,
+        compat: {
+          maxTokensField: "max_tokens",
+          supportsDeveloperRole: false,
+        },
+      };
+    }),
   });
 }
