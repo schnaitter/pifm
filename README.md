@@ -59,6 +59,6 @@ The second restriction means pi's built-in `edit` tool (which takes `edits: [{ol
 
 ## Status
 
-Verified working with both `system` (on-device) and `pcc` (Private Cloud Compute) models: plain replies, `bash` tool calls, `read` tool calls. Note that `fm available --model pcc` may report PCC as unavailable on a host where `fm serve` actually accepts PCC requests — trust the serve path. Not yet verified: image input, long-context behavior, multi-turn sessions.
+Verified working with both `system` (on-device) and `pcc` (Private Cloud Compute) models: plain replies, `bash` tool calls, `read` tool calls. Note that `fm available --model pcc` may report PCC as unavailable on a host where `fm serve` actually accepts PCC requests — trust the serve path. **PCC only seems to work if you run `fm serve` yourself.** Not yet verified: image input, long-context behavior, multi-turn sessions.
 
 Context windows: `system` = 4096, `pcc` = 32768. `maxTokens` defaults to 4096 for both. `fm serve`'s `/v1/models` doesn't report these, so they're hardcoded; any future model is read from `/v1/models` if it supplies `context_window` / `max_tokens`, otherwise it falls back to 8192 / 4096.
