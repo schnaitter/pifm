@@ -24,6 +24,14 @@ pi --provider apple-fm --model system
 
 `fm serve` is started automatically if it isn't already running on the configured port, and torn down on pi shutdown. If you already have an `fm serve` running, pifm reuses it and leaves it alone.
 
+To run `fm serve` yourself (recommended for `pcc` — see [Status](#status)):
+
+```sh
+fm serve --port 11435    # match PIFM_PORT; default is 11435
+```
+
+Leave it running in a separate terminal before launching `pi`. pifm will probe the port, see it's already healthy, and reuse it.
+
 ## Configuration
 
 | Env var | Default | Purpose |
