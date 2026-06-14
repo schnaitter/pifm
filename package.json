@@ -1,0 +1,13 @@
+{
+  "name": "pifm",
+  "version": "0.1.0",
+  "description": "pi-coding-agent provider extension for Apple Foundation Models via the fm CLI's OpenAI-compatible server.",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}
